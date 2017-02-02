@@ -22,12 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-function Ensure-SPOUser {
+function Get-SPOUser {
     <#
 
     .SYNOPSIS
 
-    Ensures that SharePoint Online user exists on target site collection.
+    Gets SharePoint Online user.
 
 
 
@@ -35,30 +35,30 @@ function Ensure-SPOUser {
 
     Adds SharePoint Online user to site users list if the user entry not exists yet.
 
-    User logins are expected as pipeline, or may be passed to the -LoginName parameter.
+    User login names are expected as pipeline, or may be passed to the -LoginName parameter.
 
 
     .PARAMETER Site
 
-    The site collection in context of which the user is ensured.
+    The site in context of which the user exists.
 
 
 
     .PARAMETER LoginName
 
-    Login name of the user to ensure.
+    Login name of the user.
 
 
 
     .Example
 
-    Ensure-SPOUser -Site $ctx.Site -LoginName "jdoe@objectivity.co.uk"
+    Get-SPOUser -Web $web -LoginName "andrew.smith@contoso.com"
 
 
 
     .NOTES
 
-    You need to pass 'Site' argument that is loaded in the context of a user who has privileges to browse user info.
+    You need to pass 'Web' argument that is loaded in the context of a user who has privileges to browse user info.
 
     #>
     [CmdletBinding()]
@@ -66,7 +66,7 @@ function Ensure-SPOUser {
 
     param(
         [Parameter(Mandatory=$true, ValueFromPipeline=$false, Position=1)]
-        [Microsoft.SharePoint.Client.Site]$Site,
+        [Microsoft.SharePoint.Client.Web]$Web,
 
         [Parameter(Mandatory=$true, ValueFromPipeline=$true, Position=2)]
         [Alias("User", "UserName", "Name")]
@@ -74,33 +74,32 @@ function Ensure-SPOUser {
     )
 
     begin {
-        Write-Debug -Message "Ensure-SPOUser begin"
-        $ctx = $Site.Context
-        $web = $ctx.Web
-        $ctx.Load($web)
+        Write-Debug -Message "### Get-SPOUser begin ###"
+        Write-Debug -Message "Loading client objects."
+        $ctx = $Web.Context
+        $ctx.Load($Web)
         $ctx.ExecuteQuery()
+        Write-Debug -Message "Query execution finished."
     }
 
     process {
-        
+        Write-Debug -Message "### Get-SPOUser process ###"
         try {
-            Write-Debug -Message "Ensure-SPOUser process"
-        
-            $user = $web.EnsureUser($LoginName)
+            Write-Debug -Message "Retrieving user $LoginName."
+            $user = $Web.EnsureUser($LoginName)
             $ctx.Load($user)
             $ctx.ExecuteQuery()
-            Write-Host -Object "User '$LoginName' successfully ensured on $($web.Url)"
+            Write-Debug -Message "Query execution finished."
+            Write-Verbose -Message "User '$LoginName' successfully ensured on $($Web.Url)"
 
             return $user
 
         } catch {
-            Write-Error -Message "Ensuring user '$LoginName' failed."
-            Write-Error $_
-            return $null
+            Write-Error -Message "Getting user '$LoginName' failed."
         }
     }
 
     end {
-        Write-Debug -Message "Ensure-SPOUser end"
+        Write-Debug -Message "### Get-SPOUser end ###"
     }
 }

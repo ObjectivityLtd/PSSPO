@@ -27,25 +27,29 @@ function Invoke-LoadMethod() {
 
     .SYNOPSIS
 
-    Load property of a SharePoint object.
+    Load property of a SharePoint client object.
 
 
 
     .DESCRIPTION
 
-    Gets url of the container site for sites of given type (guilds or tribes).
+    Use Invode-LoadMethod cmdlet to load properties that cannot be loaded with native Microsoft.SharePoint.Client.ClientContext Load method due to PowerShell constraints (no lambda expressions).
+
+
+
+    .PARAMETER Object
+
+    SharePoint object load method will be invoked for..
 
 
 
     .PARAMETER PropertyName
 
-    Path to the configuration xml file the setting is stored in.
+    Name of the property that will be loaded for given object..
 
 
 
     .Example
-
-    Load property "RequestAccessEmail" for a web
 
     Invoke-LoadMethod -Object $Web -PropertyName "RequestAccessEmail"
 
@@ -59,6 +63,7 @@ function Invoke-LoadMethod() {
 
     #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
        [Parameter(Mandatory=$true, Position = 1)]
        [Microsoft.SharePoint.Client.ClientObject]$Object,
@@ -72,16 +77,16 @@ function Invoke-LoadMethod() {
     $clientLoad = $load.MakeGenericMethod($type) 
 
 
-    $Parameter = [System.Linq.Expressions.Expression]::Parameter(($type), $type.Name)
-    $Expression = [System.Linq.Expressions.Expression]::Lambda(
+    $parameter = [System.Linq.Expressions.Expression]::Parameter(($type), $type.Name)
+    $expression = [System.Linq.Expressions.Expression]::Lambda(
                     [System.Linq.Expressions.Expression]::Convert(
-                        [System.Linq.Expressions.Expression]::PropertyOrField($Parameter,$PropertyName),
+                        [System.Linq.Expressions.Expression]::PropertyOrField($parameter,$PropertyName),
                         [System.Object]
                     ),
                     $($Parameter)
                   )
 
-    $ExpressionArray = [System.Array]::CreateInstance($Expression.GetType(), 1)
-    $ExpressionArray.SetValue($Expression, 0)
-    $clientLoad.Invoke($ctx,@($Object,$ExpressionArray))
+    $expressionArray = [System.Array]::CreateInstance($expression.GetType(), 1)
+    $expressionArray.SetValue($expression, 0)
+    $clientLoad.Invoke($ctx,@($Object,$expressionArray))
 }

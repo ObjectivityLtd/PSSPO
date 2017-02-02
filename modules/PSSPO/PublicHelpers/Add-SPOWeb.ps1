@@ -22,26 +22,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-function Ensure-SPOWeb {
+function Add-SPOWeb {
     <#
 
     .SYNOPSIS
 
-    Ensures that SharePoint site of given URL address exists in parent's site subsites collection.
+    Adds child site.
 
 
 
     .DESCRIPTION
 
-    The creation is performed only if the site does not exist.
+    Site creation is performed only if the site does not exist in parent's site child sites collection.
 
     Parameters necessary to create site are expected as pipeline properties of an object, or may be passed to the -Title, -Description, -Url and -Template parameters.
 
 
 
-    .PARAMETER Web 
+    .PARAMETER ParentWeb 
 
-    The parent site.
+    Parent site.
 
 
 
@@ -75,7 +75,7 @@ function Ensure-SPOWeb {
 
     - site owners (with 'full control' permissions to the site),
 
-    - site members (with 'edit' permissions to the site),
+    - site members (with 'contribute' permissions to the site),
 
     - site visitors (with 'read' permissions to the site).
 
@@ -83,34 +83,25 @@ function Ensure-SPOWeb {
 
     .EXAMPLE
 
-    Ensure that 'Sample' site exists as a root site's subsite. If not, the site is created with unique permissions.
-
-
-    Ensure-SPOWeb -Web $context.Web -Title "Sample" -Description "Sample site" -Template "STS#0" -Url "sample" -UniquePermissions
+    Add-SPOWeb -ParentWeb $web -Title "Sample" -Description "Sample site" -Template "STS#0" -Url "sample" -UniquePermissions
 
 
 
     .EXAMPLE 
 
-    Read site's children from xml file and create missing ones (if there are any).
-
-
-    (Get-Content -Path "c:\portal.xml).site.web.webs | Ensure-SPOWeb -Web $context.Site.RootWeb
+    $siteInfo | Add-SPOWeb -ParentWeb $web
 
 
 
     .Example
 
-    Create (if not exists) 'Sample' child site for the root site by specifying parameters and passing parent web to the pipeline. The permissions will be inherited.
-
-
-    $ctx.Web | Ensure-SPOWeb -Title "Sample" -Description "Sample site" -Template "STS#0" -Url "sample"
+    $web | Add-SPOWeb -Title "Sample" -Description "Sample site" -Template "STS#0" -Url "sample"
 
 
 
     .NOTES
 
-    You need to pass 'Web' argument that is loaded in the context of a user who has privileges to create child sites on this web.
+    You need to pass 'ParentWeb' argument that is loaded in the context of a user who has privileges to create child sites for this site.
 
     Notice that function call does not change state of existing site (if found by url). This applies both to parameters (title, description and template) and site permissions.
 
@@ -119,7 +110,7 @@ function Ensure-SPOWeb {
     [OutputType([Microsoft.SharePoint.Client.Web])]
     param(
         [Parameter(Mandatory=$true, Position=1)]
-        [Microsoft.SharePoint.Client.Web]$Web,
+        [Microsoft.SharePoint.Client.Web]$ParentWeb,
 
         [Parameter(Mandatory=$true, Position=2, ValueFromPipelineByPropertyName=$true)]
         [string]$Url,
@@ -138,74 +129,78 @@ function Ensure-SPOWeb {
     )
 
     begin {
-        Write-Debug -Message "Ensure-SPOWeb begin"
-        $ctx = $Web.Context
-        $ctx.Load($Web)
-        $ctx.Load($Web.Webs)
+        Write-Debug -Message "### Add-SPOWeb begin ###"
+        Write-Debug -Message "Loading client objects."
+        $ctx = $ParentWeb.Context
+        $ctx.Load($ParentWeb)
+        $ctx.Load($ParentWeb.Webs)
         $ctx.ExecuteQuery()
+        Write-Debug -Message "Query execution finished."
     }
 
     process {
-        Write-Debug -Message "Ensure-SPOWeb process: $Url"
+        Write-Debug -Message "### Add-SPOWeb process: $Url ###"
                 
-        $childWebUrl = "$($Web.Url)/$Url"
-        $childWeb = ($Web.Webs | Where-Object { $_.Url.ToLower() -eq $childWebUrl.ToLower() } | Select-Object -first 1)
+        $childWebUrl = "$($ParentWeb.Url)/$Url"
+        $childWeb = ($ParentWeb.Webs | Where-Object { $_.Url.ToLower() -eq $childWebUrl.ToLower() } | Select-Object -first 1)
 
         if ($childWeb) {
-            Write-Verbose -Message "Site '$($childWeb.Url)' already exists - creation skipped."
+            Write-Warning -Message "Site '$($childWeb.Url)' already exists - creation skipped."
+            Write-Debug -Message "Loading child web."
+            $ctx.Load($childWeb)
+            $ctx.ExecuteQuery()
+            Write-Debug -Message "Query execution finished."
         }
         else {
+            Write-Verbose -Message "Creating child site '$Url' for '$($ParentWeb.Url)'"
             try {
-                Write-Verbose -Message "Creating child site '$Url' for '$($Web.Url)'"
-                
+                Write-Debug -Message "Adding child site."
                 $webInfo = New-Object Microsoft.SharePoint.Client.WebCreationInformation
                 $webInfo.WebTemplate = $Template
                 $webInfo.Description = $Description
                 $webInfo.Title = $Title
                 $webInfo.Url = $Url
-                $webInfo.Language = $Web.Language
+                $webInfo.Language = $ParentWeb.Language
                 $webInfo.UseSamePermissionsAsParentSite = (-not $UniquePermissions)
-                $childWeb = $Web.Webs.Add($webInfo)
+                $childWeb = $ParentWeb.Webs.Add($webInfo)
                 $ctx.Load($childWeb)
                 $ctx.ExecuteQuery()
-                
-                Write-Host -Object "Site '$childWebUrl' was successfully created."
+                Write-Debug -Message "Query execution finished."
+                Write-Verbose -Message "Site '$childWebUrl' was successfully created."
 
             } catch {
                 Write-Error -Message "Site '$childWebUrl' creation failed."
-                Write-Error $_
             }
 
-
             if ($UniquePermissions) {
+                Write-Verbose -Message "Setting up unique permissions on site '$($childWeb.Url)'."
                 try {
-                    Write-Verbose -Message "Breaking permission inheritance on site '$($childWeb.Url)'."
-                    $childWeb.BreakRoleInheritance($false, $false)
+                    Write-Debug -Message "Associating security groups."
+                    $owners = Add-SPOWebAssociatedGroup -Web $childWeb -GroupType "Owners"
+                    Set-SPOPermissions -Target $childWeb -Principal $owners -PermissionLevel "Full Control"
+                    $childWeb.AssociatedOwnerGroup =  $owners
                     $childWeb.Update()
-                    $ctx.Load($childWeb)
-                    $ctx.ExecuteQuery()
-                    Write-Verbose -Message "Permission inheritance successfully broken."
-
-                    $childWeb.AssociatedOwnerGroup = Ensure-SPODefaultGroup -Web $childWeb -GroupType "Owners" | Add-SPOGroupPermissions -TargetWeb $childWeb -PermissionLevel "Design"
+                    $members = Add-SPOWebAssociatedGroup -Web $childWeb -GroupType "Members"
+                    Set-SPOPermissions -Target $childWeb -Principal $members -PermissionLevel "Contribute"
+                    $childWeb.AssociatedMemberGroup =  $members
                     $childWeb.Update()
-                    $childWeb.AssociatedMemberGroup = Ensure-SPODefaultGroup -Web $childWeb -GroupType "Members" | Add-SPOGroupPermissions -TargetWeb $childWeb -PermissionLevel "Contribute"
+                    $visitors = Add-SPOWebAssociatedGroup -Web $childWeb -GroupType "Visitors"
+                    Set-SPOPermissions -Target $childWeb -Principal $visitors -PermissionLevel "Read"
+                    $childWeb.AssociatedVisitorGroup = $visitors
                     $childWeb.Update()
-                    $childWeb.AssociatedVisitorGroup = Ensure-SPODefaultGroup -Web $childWeb -GroupType "Visitors" | Add-SPOGroupPermissions -TargetWeb $childWeb -PermissionLevel "Read"
-                    $childWeb.Update()
-                    
                     # Site property 'vti_createdassociategroups' are comma-separated identifiers of associated groups. When site with unique permissions is created using gui, this property is set.
                     # Setting associated groups does not set the property. The code below is a workaround.
                     $ids = @($childWeb.AssociatedOwnerGroup.Id, $childWeb.AssociatedMemberGroup.Id, $childWeb.AssociatedVisitorGroup.Id)
                     $associatedGroups = $ids -join ';'
+                    Write-Debug -Message "Associated groups: $associatedGroups."
                     $childWeb.AllProperties["vti_createdassociategroups"] = $associatedGroups
                     $childWeb.Update()
-
+                    $ctx.Load($childWeb)
                     $ctx.ExecuteQuery()
-
-                    Write-Host -Object "Unique permissions successfully set for site '$($childWeb.Url)'."
+                    Write-Debug -Message "Query execution finished."
+                    Write-Verbose -Message "Unique permissions successfully set up for site '$($childWeb.Url)'."
                 } catch {
-                    Write-Error -Message "Setting unique permissions for site '$($childWeb.Url)' failed."
-                    Write-Error $_
+                    Write-Error -Message "Setting up unique permissions for site '$($childWeb.Url)' failed."
                 }
             }
         }
@@ -214,6 +209,6 @@ function Ensure-SPOWeb {
     }
 
     end {
-        Write-Debug -Message "Ensure-SPOWeb end"
+        Write-Debug -Message "### Add-SPOWeb end ###"
     }
 }

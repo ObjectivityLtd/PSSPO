@@ -33,7 +33,7 @@ function Get-SPOContext {
 
     .DESCRIPTION
 
-    Returns client context for given user.
+    Returns client context for given user and url address.
 
 
 
@@ -56,9 +56,27 @@ function Get-SPOContext {
 
 
 
-    .Example
+    .PARAMETER SecurePassword
+
+    Secure string password. This parameter can be set instead of plain text password.
+
+
+
+    .EXAMPLE
 
     $ctx = Get-SPOContext -Url "https://contoso.sharepoin.com" -User "admin@contoso.com" -Password "P@ssw0rd"
+
+
+
+    .EXAMPLE
+
+    $ctx = Get-SPOContext -Url "https://contoso.sharepoin.com" -User "admin@contoso.com" -SecurePassword $securePassword
+    
+
+
+    .EXAMPLE
+
+    $ctx = Get-SPOContext -Url "https://contoso.sharepoin.com" -User "admin@contoso.com"
 
 
 

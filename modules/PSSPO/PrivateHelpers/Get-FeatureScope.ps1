@@ -27,7 +27,7 @@ function Get-FeatureScope {
 
     .SYNOPSIS
 
-    Gets scope of the web feature depending on feature origin (SharePoint OOTB feature or custom one).
+    Gets scope of the web feature depending on feature origin (SharePoint OOTB feature or a custom one).
 
 
 
@@ -56,5 +56,4 @@ function Get-FeatureScope {
 	}
 
     return $scope
-
 }

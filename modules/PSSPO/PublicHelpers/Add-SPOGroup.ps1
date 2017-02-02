@@ -22,26 +22,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-function Ensure-SPOGroup {
+function Add-SPOGroup {
     <#
 
     .SYNOPSIS
 
-    Ensures that SharePoint security group of given name exists.
+    Adds SharePoint security group.
 
 
 
     .DESCRIPTION
 
-    The Ensure-SPOGroup function checks if SharePoint security group of given name exists in site collection groups. If not, the group is created.
+    The Add-SPOGroup function checks if SharePoint security group of given name exists in site collection groups. If not, the group is created.
 
     Parameters necessary to create site are expected as pipeline properties of an object, or may be passed to the -Name, -Description and -Owner parameters.
 
 
 
-    .PARAMETER Web 
+    .PARAMETER Site 
 
-    Parent site of the group.
+    Site collection to add group to.
 
 
 
@@ -65,10 +65,7 @@ function Ensure-SPOGroup {
 
     .EXAMPLE
 
-    Ensure 'Sample Owners' SharePoint security group exists. If the group does not exist, create it and make it owner of itself.
-
-
-    Ensure-SPOGroup -Web $Web -Name "Sample Owners" -Description "Use this group to grant people full control permissions to the SharePoint site" -Owner "Sample Owners"
+    Add-SPOGroup -Web $Web -Name "Sample Owners" -Description "Use this group to grant people full control permissions to the SharePoint site" -Owner "Sample Owners"
 
 
 
@@ -76,12 +73,14 @@ function Ensure-SPOGroup {
 
     You need to pass 'Web' argument that is loaded in the context of a user who has privileges to create SharePoint security groups.
 
+    Regular users od domain groups cannot be set as group owners yet.
+
     #>
 	[CmdletBinding()]
     [OutputType([Microsoft.SharePoint.Client.Group])]
 	param(
         [Parameter(Mandatory=$true, Position=1, ValueFromPipeline=$false)]
-        [Microsoft.SharePoint.Client.Web]$Web,
+        [Microsoft.SharePoint.Client.Site]$Site,
 
         [Parameter(Mandatory=$true, Position=2, ValueFromPipelineByPropertyName=$true)]
         [string]$Name,
@@ -94,71 +93,82 @@ function Ensure-SPOGroup {
     )
 
 	begin {
-        Write-Debug -Message "Ensure-SPOGroup begin"
-
-        $ctx = $Web.Context
-        $ctx.Load($Web)
-        $ctx.Load($Web.SiteGroups)
-
-        $site = $ctx.Site
-
+        Write-Debug -Message "### Add-SPOGroup begin ###"
+        Write-Debug -Message "Loading client objects."
+        $ctx = $Site.Context
         $ctx.Load($site)
-        $ctx.Load($site.RootWeb.SiteGroups)
+        $web = $Site.RootWeb
+        $ctx.Load($web)
+        $groups = $web.SiteGroups
+        $ctx.Load($groups)
         $ctx.ExecuteQuery()
+        Write-Debug -Message "Query execution finished."
 	}
 	
 	process {
+        Write-Debug -Message "### Add-SPOGroup process: $Name ###"
         
-        Write-Debug -Message "Ensure-SPOGroup process: $Name"
-
-        $group = $Web.SiteGroups | Where-Object { $_.Title -eq $Name } | Select-Object -First 1
+        $group = $groups | Where-Object { $_.Title -eq $Name } | Select-Object -First 1
 
         if ($group) {
-            Write-Verbose -Message "SharePoint security group '$Name' already exists - creation skipped."
+            Write-Warning -Message "SharePoint security group '$Name' already exists - creation skipped."
+            Write-Debug -Message "Retrieving group."
+            $ctx.Load($group)
+            $ctx.ExecuteQuery()
+            Write-Debug -Message "Query execution finished."
         } else {
             try {
-
                 Write-Verbose -Message "Creating SharePoint security group '$Name'."
+                Write-Debug -Message "Adding SharePoint group."
                 $newGroup = New-Object Microsoft.SharePoint.Client.GroupCreationInformation
                 $newGroup.Title = $Name
                 $newGroup.Description = $Description
-            
-                $group = $Web.SiteGroups.Add($newGroup)
-                
+                $group = $groups.Add($newGroup)
                 $ctx.Load($group)
-                $ctx.Load($Web.SiteGroups)
+                $ctx.Load($groups)
                 $ctx.ExecuteQuery()
-
+                Write-Debug -Message "Query execution finished."
                 Write-Verbose -Message "'$($group.Title)' group was created."
-                
-                if ($Owner) {
-                    Write-Verbose -Message "Looking for owner group '$Owner' for '$Name'."
-                    $ownerGroup = $site.RootWeb.SiteGroups | Where-Object { $_.Title -eq $Owner } | Select-Object -First 1
-                    if ($ownerGroup) {
-                        $group.Owner = $ownerGroup
-                        $group.Update()
-                        Write-Verbose -Message "'$Owner' group set as the owner of '$Name' group."
-                    } else {
-                        Write-Verbose -Message "Owner group '$Owner' not found - skipping."
-                    }
-                             
-                } else {
-                    Write-Verbose -Message "Owner group name not set - skipping."
-                }
-
-                # If group description contains HTML formatting, it must be set the following way. Otherwise HTML tags are automatically escaped.
-                # See http://sharepoint.stackexchange.com/questions/26228/html-in-spgroup-description
-                $groupInfo = $Web.SiteUserInfoList.GetItemById($group.Id)
-                $groupInfo["Notes"] = $Description
-                $groupInfo.Update()
-
-                $ctx.Load($group)
-                $ctx.ExecuteQuery()
-
-                Write-Host -Object "SharePoint security group '$Name' successfully created."
             } catch {
                 Write-Error -Message "Creating SharePoint security group '$Name' failed."
-                Write-Error $_
+            }
+
+            if ($Owner) {
+                Write-Verbose -Message "Updating group owner of '$Name'."
+                try {
+                    $ownerGroup = $groups | Where-Object { $_.Title -eq $Owner } | Select-Object -First 1
+                    if ($ownerGroup) {
+                        Write-Debug -Message "Setting group owner."
+                        $group.Owner = $ownerGroup
+                        $group.Update()
+                        $ctx.ExecuteQuery()
+                        Write-Debug -Message "Query execution finished."
+                        Write-Verbose -Message "'$Owner' group set as the owner of '$Name' group."
+                    } else {
+                        Write-Warning -Message "Owner group '$Owner' for '$Name' group not found - skipping."
+                    }
+                } catch {
+                    Write-Error -Message "Setting owner for group '$Name' failed"
+                }
+
+            } else {
+                Write-Verbose -Message "Owner group name not set - skipping."
+            }
+
+            try {
+                # If group description contains HTML formatting, it must be set the following way. Otherwise HTML tags are automatically escaped.
+                # See http://sharepoint.stackexchange.com/questions/26228/html-in-spgroup-description
+                Write-Verbose -Message "Updating group description."
+                Write-Debug -Message "Setting group description."
+                $groupInfo = $web.SiteUserInfoList.GetItemById($group.Id)
+                $groupInfo["Notes"] = $Description
+                $groupInfo.Update()
+                $ctx.Load($group)
+                $ctx.ExecuteQuery()
+                Write-Debug -Message "Query execution finished."
+                Write-Verbose -Message "Description of SharePoint security group '$Name' successfully updated."
+            } catch {
+                Write-Error -Message "Updating SharePoint security group description failed."
             }
         }
 
@@ -166,6 +176,6 @@ function Ensure-SPOGroup {
 	}
 	
 	end {
-        Write-Debug -Message "Ensure-SPOGroup end"
+        Write-Debug -Message "### Add-SPOGroup end ###"
 	}
 }

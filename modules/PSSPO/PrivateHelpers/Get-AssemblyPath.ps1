@@ -65,6 +65,7 @@ function Get-AssemblyPath {
 
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory=$true, Position=1)]
         [string]$AssemblyName,
